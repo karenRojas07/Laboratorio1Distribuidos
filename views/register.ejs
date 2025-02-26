@@ -1,0 +1,72 @@
+<!-- register.ejs -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Registro de Usuario</title>
+  <!-- Bootstrap CSS (CDN) -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+  />
+</head>
+<body class="bg-light">
+  <div class="container mt-5">
+    <div class="row justify-content-center">
+      <div class="col-md-6">
+        <div class="card shadow">
+          <div class="card-header bg-success text-white">Crear Usuario</div>
+          <div class="card-body">
+            <form action="/register" method="POST">
+              <div class="mb-3">
+                <label for="nombre_usuario" class="form-label">Nombre de usuario</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="nombre_usuario"
+                  name="nombre_usuario"
+                  placeholder="Ingresa tu nombre de usuario"
+                  required
+                />
+              </div>
+
+              <div class="mb-3">
+                <label for="correo_electronico" class="form-label">Correo electrónico</label>
+                <input
+                  type="email"
+                  class="form-control"
+                  id="correo_electronico"
+                  name="correo_electronico"
+                  placeholder="Ingresa tu correo"
+                  required
+                />
+              </div>
+
+              <div class="mb-3">
+                <label for="contrasena" class="form-label">Contraseña</label>
+                <input
+                  type="password"
+                  class="form-control"
+                  id="contrasena"
+                  name="contrasena"
+                  placeholder="Ingresa tu contraseña"
+                  required
+                />
+              </div>
+
+              <button type="submit" class="btn btn-success w-100">Registrar</button>
+            </form>
+          </div>
+          <div class="card-footer">
+            <!-- Link para volver al login -->
+            <a href="/">Volver al inicio (Login)</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
