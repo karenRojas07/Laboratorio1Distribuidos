@@ -1,4 +1,3 @@
-// app.js
 const express = require('express');
 const mysql = require('mysql2');
 const session = require('express-session');
@@ -109,7 +108,6 @@ db.connect((err) => {
 
 // GET / -> Página principal (login)
 app.get('/', (req, res) => {
-  // Si ya existe req.session.user, redirigir a welcome
   if (req.session.user) {
     return res.redirect('/welcome');
   }
@@ -121,23 +119,74 @@ app.get('/register', (req, res) => {
   res.render('register');
 });
 
+// Ruta para registrar un nuevo usuario
+app.post('/register', (req, res) => {
+  const { nombre_usuario, correo_electronico, contrasena } = req.body;
+
+  // Validar los datos del formulario
+  if (!nombre_usuario || !correo_electronico || !contrasena) {
+    return res.status(400).json({ message: 'Faltan datos (nombre_usuario, correo_electronico, contrasena).' });
+  }
+
+  // Verificar si el correo o nombre de usuario ya están registrados
+  const checkQuery = `
+    SELECT *
+    FROM Usuarios
+    WHERE nombre_usuario = ?
+       OR correo_electronico = ?
+  `;
+
+  db.query(checkQuery, [nombre_usuario, correo_electronico], (err, results) => {
+    if (err) {
+      console.error('Error al verificar si el usuario ya existe:', err);
+      return res.status(500).json({ message: 'Error al verificar el usuario.' });
+    }
+
+    if (results.length > 0) {
+      return res.status(400).json({ message: 'El nombre de usuario o correo ya está registrado.' });
+    }
+
+    // Hashear la contraseña
+    bcrypt.hash(contrasena, 10, (errHash, contrasenaHasheada) => {
+      if (errHash) {
+        console.error('Error al hashear la contraseña:', errHash);
+        return res.status(500).json({ message: 'Error al hashear la contraseña.' });
+      }
+
+      // Insertar el nuevo usuario en la base de datos
+      const insertQuery = `
+        INSERT INTO Usuarios (nombre_usuario, correo_electronico, contrasena_hashed)
+        VALUES (?, ?, ?)
+      `;
+
+      db.query(insertQuery, [nombre_usuario, correo_electronico, contrasenaHasheada], (err2) => {
+        if (err2) {
+          console.error('Error al registrar usuario:', err2);
+          return res.status(500).json({ message: 'Error al registrar el usuario.' });
+        }
+
+        // Redirigir a la ruta principal ("/") luego de registro exitoso
+        return res.redirect('/');
+      });
+    });
+  });
+});
+
+
+
 // GET /welcome -> Página de bienvenida
 app.get('/welcome', (req, res) => {
-  // Verifica si hay un usuario en sesión
   if (!req.session.user) {
     return res.redirect('/');
   }
-  // Pasa el usuario a la vista welcome.ejs
   res.render('welcome', { user: req.session.user });
 });
-
 
 // Ruta para mostrar el formulario de recuperación de contraseña
 app.get('/forgot-password', (req, res) => {
   res.render('forgot-password');
 });
 
-// Ruta para enviar el token al correo del usuario
 // Ruta para enviar el token al correo del usuario
 app.post('/forgot-password', (req, res) => {
   const { correo_electronico } = req.body;
@@ -146,7 +195,6 @@ app.post('/forgot-password', (req, res) => {
     return res.status(400).json({ message: 'El correo electrónico es requerido.' });
   }
 
-  // Verificar si el correo existe en la base de datos
   const findUserQuery = 'SELECT * FROM Usuarios WHERE correo_electronico = ?';
   db.query(findUserQuery, [correo_electronico], (err, results) => {
     if (err) {
@@ -160,46 +208,36 @@ app.post('/forgot-password', (req, res) => {
 
     const user = results[0];
 
-    // Generar un token único para la recuperación
+    // Generar un token único de 6 caracteres para la recuperación
     const token = generateToken();
+    const expirationTime = Date.now() + 5 * 60 * 1000; // 5 minutos de expiración
 
-    // Enviar correo con el token de recuperación
-    sendRecoveryEmail(correo_electronico, token);
+    const storeTokenQuery = 'INSERT INTO PasswordResetTokens (correo_electronico, token, expiration_time) VALUES (?, ?, ?)';
+    db.query(storeTokenQuery, [correo_electronico, token, expirationTime], (err2) => {
+      if (err2) {
+        console.error('Error al almacenar token en la base de datos:', err2);
+        return res.status(500).json({ message: 'Error en el servidor' });
+      }
 
-    // Confirmación de envío
-    res.status(200).json({ message: 'Se ha enviado un correo con el token de recuperación.' });
+      sendRecoveryEmail(correo_electronico, token);
+
+      res.status(200).json({ message: 'Se ha enviado un correo con el token de recuperación.' });
+    });
   });
 });
 
-
-///FUNCIONES
-
-// fucion  para almacenar token
-function storeToken(token) {
-  const expirationTime = Date.now() + 5 * 60 * 1000; // 5 minutos en milisegundos
-  localStorage.setItem('resetPasswordToken', token);
-  localStorage.setItem('tokenExpiration', expirationTime);
-}
-
-// fucion  para validar token
-function isTokenValid() {
-  const expirationTime = localStorage.getItem('tokenExpiration');
-  return Date.now() < expirationTime;
-}
-
-
-// Función para generar un token único para la recuperación de contraseña
+// Función para generar un token único de 6 caracteres
 function generateToken() {
-  return crypto.randomBytes(32).toString('hex'); // Genera un token aleatorio de 64 caracteres
+  return Math.random().toString(36).substr(2, 6); // Genera un token aleatorio de 6 caracteres
 }
 
-// Función para el envio de correos para recuperar contraseña
+// Función para enviar el correo con el token
 function sendRecoveryEmail(correo_electronico, token) {
   const mailOptions = {
-    from: 'tu-email@gmail.com', // Dirección de correo que envía el mensaje
+    from: 'tu-email@gmail.com',
     to: correo_electronico,
     subject: 'Recuperación de Contraseña',
-    text: `Para restablecer tu contraseña, usa el siguiente token: ${token}\nEste token es válido solo por 5 minutos.`
+    text: `Para restablecer tu contraseña, usa el siguiente enlace: ${process.env.BASE_URL}/reset-password\nEste token es válido solo por 5 minutos.\nToken: ${token}`
   };
 
   transporter.sendMail(mailOptions, (err, info) => {
@@ -211,73 +249,57 @@ function sendRecoveryEmail(correo_electronico, token) {
   });
 }
 
+// Ruta para mostrar el formulario de cambio de contraseña
+app.get('/reset-password', (req, res) => {
+  res.render('reset-password');
+});
 
+// Ruta para manejar el POST de cambio de contraseña
+app.post('/reset-password', (req, res) => {
+  const { token, contrasena } = req.body;
 
-// ============================================
-// Rutas de lógica (POST)
-// ============================================
-
-// Registrar usuario
-app.post('/register', (req, res) => {
-  const { nombre_usuario, correo_electronico, contrasena } = req.body;
-
-  if (!nombre_usuario || !correo_electronico || !contrasena) {
-    return res
-      .status(400)
-      .json({ message: 'Faltan datos (nombre_usuario, correo_electronico, contrasena).' });
-  }
-
-  const checkQuery = `
-    SELECT *
-    FROM Usuarios
-    WHERE nombre_usuario = ?
-       OR correo_electronico = ?
-  `;
-
-  db.query(checkQuery, [nombre_usuario, correo_electronico], (err, results) => {
+  const findTokenQuery = 'SELECT * FROM PasswordResetTokens WHERE token = ? AND expiration_time > ?';
+  db.query(findTokenQuery, [token, Date.now()], (err, results) => {
     if (err) {
-      console.error('Error al verificar usuario:', err);
+      console.error('Error al verificar el token:', err);
       return res.status(500).json({ message: 'Error en el servidor' });
     }
 
-    if (results.length > 0) {
-      return res
-        .status(400)
-        .json({ message: 'El nombre de usuario o correo ya está registrado.' });
+    if (results.length === 0) {
+      return res.status(400).json({ message: 'Token inválido o expirado.' });
     }
 
-    // Hashear la contraseña usando bcrypt
+    const correo_electronico = results[0].correo_electronico;
+
     bcrypt.hash(contrasena, 10, (errHash, contrasenaHasheada) => {
       if (errHash) {
         console.error('Error al hashear la contraseña:', errHash);
         return res.status(500).json({ message: 'Error en el servidor' });
       }
 
-      const insertQuery = `
-        INSERT INTO Usuarios (nombre_usuario, correo_electronico, contrasena_hashed)
-        VALUES (?, ?, ?)
-      `;
-      db.query(insertQuery, [nombre_usuario, correo_electronico, contrasenaHasheada], (err2) => {
+      const updatePasswordQuery = 'UPDATE Usuarios SET contrasena_hashed = ? WHERE correo_electronico = ?';
+      db.query(updatePasswordQuery, [contrasenaHasheada, correo_electronico], (err2) => {
         if (err2) {
-          console.error('Error al registrar usuario:', err2);
+          console.error('Error al actualizar la contraseña:', err2);
           return res.status(500).json({ message: 'Error en el servidor' });
         }
 
-        // Redirigimos luego de registro exitoso
-        return res.redirect('/');
+        res.status(200).json({ message: 'Contraseña actualizada correctamente.' });
       });
     });
   });
 });
 
-// Iniciar sesión
+// Ruta para manejar el inicio de sesión
 app.post('/login', (req, res) => {
   const { nombre_usuario, contrasena } = req.body;
 
+  // Validar los datos del formulario
   if (!nombre_usuario || !contrasena) {
     return res.status(400).json({ message: 'Se requieren nombre_usuario y contrasena.' });
   }
 
+  // Buscar al usuario en la base de datos
   const findUserQuery = 'SELECT * FROM Usuarios WHERE nombre_usuario = ?';
   db.query(findUserQuery, [nombre_usuario], (err, results) => {
     if (err) {
@@ -285,15 +307,14 @@ app.post('/login', (req, res) => {
       return res.status(500).json({ message: 'Error en el servidor' });
     }
 
+    // Verificar si el usuario existe
     if (results.length === 0) {
-      return res
-        .status(401)
-        .json({ message: 'Credenciales inválidas (usuario no encontrado).' });
+      return res.status(401).json({ message: 'Credenciales inválidas (usuario no encontrado).' });
     }
 
     const user = results[0];
 
-    // Comparar contraseñas usando bcrypt
+    // Comparar las contraseñas usando bcrypt
     bcrypt.compare(contrasena, user.contrasena_hashed, (errCompare, isMatch) => {
       if (errCompare) {
         console.error('Error al comparar contraseñas:', errCompare);
@@ -301,12 +322,10 @@ app.post('/login', (req, res) => {
       }
 
       if (!isMatch) {
-        return res
-          .status(401)
-          .json({ message: 'Credenciales inválidas (contraseña incorrecta).' });
+        return res.status(401).json({ message: 'Credenciales inválidas (contraseña incorrecta).' });
       }
 
-      // Guardar user en la sesión
+      // Guardar la sesión del usuario
       req.session.user = {
         id_usuario: user.id_usuario,
         nombre_usuario: user.nombre_usuario,
@@ -314,57 +333,25 @@ app.post('/login', (req, res) => {
         bloqueado: user.bloqueado
       };
 
-      // Redirigir a welcome
+      // Redirigir a la página de bienvenida
       return res.redirect('/welcome');
     });
   });
 });
 
-// Cerrar sesión
+// Ruta para cerrar sesión
 app.post('/logout', (req, res) => {
-  // Destruir la sesión
+  // Destruir la sesión del usuario
   req.session.destroy((err) => {
     if (err) {
       console.error('Error al destruir sesión:', err);
-      // Redirige o envía error
-      return res.redirect('/');
+      return res.redirect('/');  // Redirigir al login si hay un error
     }
-    res.redirect('/'); // Redirigimos al login ("/") después de cerrar sesión
+    res.redirect('/'); // Redirigir al login después de cerrar sesión
   });
 });
 
-// Obtener todos los usuarios
-app.get('/users', (req, res) => {
-  db.query('SELECT * FROM Usuarios', (err, results) => {
-    if (err) {
-      console.error('Error al obtener usuarios:', err);
-      return res.status(500).json({ message: 'Error en el servidor' });
-    }
-    return res.status(200).json(results);
-  });
-});
 
-// Ruta para mostrar el formulario de cambio de contraseña
-app.get('/reset-password/:token', (req, res) => {
-  const token = req.params.token;
-
-  // Verificar si el token existe en localStorage y es válido
-  const storedToken = localStorage.getItem('resetPasswordToken');
-  const tokenExpiration = localStorage.getItem('tokenExpiration');
-
-  // Validar si el token es el mismo y no ha expirado
-  if (storedToken && storedToken === token && Date.now() < tokenExpiration) {
-    // Renderizar la página de cambio de contraseña
-    res.render('reset-password', { token: token });
-  } else {
-    res.redirect('/forgot-password'); // Si no es válido, redirigir a la página de recuperar contraseña
-  }
-});
-
-
-// ============================================
-// Iniciar el servidor
-// ============================================
 app.listen(PORT, () => {
   console.log(`Servidor iniciado en http://localhost:${PORT}`);
 });
