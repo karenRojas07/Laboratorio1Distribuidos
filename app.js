@@ -10,6 +10,19 @@ const PORT = 3000;
 // Configurar EJS como motor de plantillas
 app.set('view engine', 'ejs');
 
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
+
+// Configurar el transporte de correo (usando un servicio SMTP como Gmail)
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'limaskharool@gmail.com',
+    pass: 'lbnz eqbm clau axoa'
+  }
+});
+
+
 // Middleware de sesión
 app.use(session({
   secret: 'MI_SECRETO_SEGURO', // Cambia esta cadena por algo más seguro
@@ -117,6 +130,88 @@ app.get('/welcome', (req, res) => {
   // Pasa el usuario a la vista welcome.ejs
   res.render('welcome', { user: req.session.user });
 });
+
+
+// Ruta para mostrar el formulario de recuperación de contraseña
+app.get('/forgot-password', (req, res) => {
+  res.render('forgot-password');
+});
+
+// Ruta para enviar el token al correo del usuario
+// Ruta para enviar el token al correo del usuario
+app.post('/forgot-password', (req, res) => {
+  const { correo_electronico } = req.body;
+
+  if (!correo_electronico) {
+    return res.status(400).json({ message: 'El correo electrónico es requerido.' });
+  }
+
+  // Verificar si el correo existe en la base de datos
+  const findUserQuery = 'SELECT * FROM Usuarios WHERE correo_electronico = ?';
+  db.query(findUserQuery, [correo_electronico], (err, results) => {
+    if (err) {
+      console.error('Error al buscar usuario:', err);
+      return res.status(500).json({ message: 'Error en el servidor.' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ message: 'Correo electrónico no encontrado.' });
+    }
+
+    const user = results[0];
+
+    // Generar un token único para la recuperación
+    const token = generateToken();
+
+    // Enviar correo con el token de recuperación
+    sendRecoveryEmail(correo_electronico, token);
+
+    // Confirmación de envío
+    res.status(200).json({ message: 'Se ha enviado un correo con el token de recuperación.' });
+  });
+});
+
+
+///FUNCIONES
+
+// fucion  para almacenar token
+function storeToken(token) {
+  const expirationTime = Date.now() + 5 * 60 * 1000; // 5 minutos en milisegundos
+  localStorage.setItem('resetPasswordToken', token);
+  localStorage.setItem('tokenExpiration', expirationTime);
+}
+
+// fucion  para validar token
+function isTokenValid() {
+  const expirationTime = localStorage.getItem('tokenExpiration');
+  return Date.now() < expirationTime;
+}
+
+
+// Función para generar un token único para la recuperación de contraseña
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex'); // Genera un token aleatorio de 64 caracteres
+}
+
+// Función para el envio de correos para recuperar contraseña
+function sendRecoveryEmail(correo_electronico, token) {
+  const mailOptions = {
+    from: 'tu-email@gmail.com', // Dirección de correo que envía el mensaje
+    to: correo_electronico,
+    subject: 'Recuperación de Contraseña',
+    text: `Para restablecer tu contraseña, usa el siguiente token: ${token}\nEste token es válido solo por 5 minutos.`
+  };
+
+  transporter.sendMail(mailOptions, (err, info) => {
+    if (err) {
+      console.error('Error al enviar el correo:', err);
+    } else {
+      console.log('Correo enviado: ' + info.response);
+    }
+  });
+}
+
+
 
 // ============================================
 // Rutas de lógica (POST)
@@ -248,6 +343,24 @@ app.get('/users', (req, res) => {
     return res.status(200).json(results);
   });
 });
+
+// Ruta para mostrar el formulario de cambio de contraseña
+app.get('/reset-password/:token', (req, res) => {
+  const token = req.params.token;
+
+  // Verificar si el token existe en localStorage y es válido
+  const storedToken = localStorage.getItem('resetPasswordToken');
+  const tokenExpiration = localStorage.getItem('tokenExpiration');
+
+  // Validar si el token es el mismo y no ha expirado
+  if (storedToken && storedToken === token && Date.now() < tokenExpiration) {
+    // Renderizar la página de cambio de contraseña
+    res.render('reset-password', { token: token });
+  } else {
+    res.redirect('/forgot-password'); // Si no es válido, redirigir a la página de recuperar contraseña
+  }
+});
+
 
 // ============================================
 // Iniciar el servidor
